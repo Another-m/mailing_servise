@@ -1,0 +1,68 @@
+version: '3.9'
+
+services:
+  db:
+    image: postgres:latest
+    restart: unless-stopped
+    environment:
+      - POSTGRES_NAME=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    ports:
+      - "5431:5432"
+    volumes:
+      - ./data/db:/var/lib/postgresql/data
+
+  web:
+    build: .
+    command: bash -c "python manage.py migrate --noinput && python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - .:/www
+    ports:
+      - "8000:8000"
+    environment:
+      URL: https://probe.fbrq.cloud/v1/send/
+      TOKEN: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2OTQ4NjUyNDMsImlzcyI6ImZhYnJpcXVlIiwibmFtZSI6ImFub3RoZXJfcmsifQ.wfD1ArBWz_zppds-OwPfz3h9cgqa7YRGYXB6JoGg8uA
+    depends_on:
+      - db
+
+
+  redis:
+    container_name: redis
+    image: redis:alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  celery_beat:
+    build: .
+    restart: always
+    command: celery -A message_service beat -l info
+    volumes:
+      - .:/www
+    environment:
+      - URL = https://probe.fbrq.cloud/v1/send/
+      - TOKEN = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2OTQ4NjUyNDMsImlzcyI6ImZhYnJpcXVlIiwibmFtZSI6ImFub3RoZXJfcmsifQ.wfD1ArBWz_zppds-OwPfz3h9cgqa7YRGYXB6JoGg8uA
+      - CELERY_BROKER_URL=redis://redis:6379/3
+      - CELERY_RESULT_BACKEND=redis://redis:6379/4
+    depends_on:
+      - redis
+      - web
+      - db
+
+  celery_worker:
+    build: .
+    restart: always
+    command: celery worker --app=message_service --loglevel=info
+    volumes:
+      - .:/www
+    environment:
+      - URL = https://probe.fbrq.cloud/v1/send/
+      - TOKEN = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2OTQ4NjUyNDMsImlzcyI6ImZhYnJpcXVlIiwibmFtZSI6ImFub3RoZXJfcmsifQ.wfD1ArBWz_zppds-OwPfz3h9cgqa7YRGYXB6JoGg8uA
+      - CELERY_BROKER_URL=redis://redis:6379/3
+      - CELERY_RESULT_BACKEND=redis://redis:6379/4
+    depends_on:
+      - celery_beat
+      - redis
+      - web
+      - db
